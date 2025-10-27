@@ -1,84 +1,98 @@
-# segmentation.py
 import cv2
 import numpy as np
-from skimage.color import rgb2hsv
-from skimage.filters import threshold_otsu
+import matplotlib.pyplot as plt
 
-def sobel_edge(img):
-    gray = img if len(img.shape)==2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
-    gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
-    g = np.sqrt(gx*gx + gy*gy)
-    g = np.uint8(255 * (g / (np.max(g) + 1e-8)))
-    _, bw = cv2.threshold(g, 0, 255, cv2.THRESH_OTSU)
-    return bw
+# ---------- Thresholding ----------
+def global_threshold(img, thresh_value=127):
+    """Apply simple global thresholding."""
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(img, thresh_value, 255, cv2.THRESH_BINARY)
+    return binary
 
-def prewitt_edge(img):
-    gray = img if len(img.shape)==2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    kernelx = np.array([[1,0,-1],[1,0,-1],[1,0,-1]])
-    kernely = kernelx.T
-    gx = cv2.filter2D(gray, -1, kernelx)
-    gy = cv2.filter2D(gray, -1, kernely)
-    g = np.sqrt(gx.astype(float)**2 + gy.astype(float)**2)
-    g = np.uint8(255 * (g / (np.max(g) + 1e-8)))
-    _, bw = cv2.threshold(g, 0, 255, cv2.THRESH_OTSU)
-    return bw
-
-def canny_edge(img, low=100, high=200):
-    gray = img if len(img.shape)==2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    return cv2.Canny(gray, low, high)
+def adaptive_threshold(img):
+    """Apply adaptive Gaussian thresholding."""
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    binary = cv2.adaptiveThreshold(
+        img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY, 11, 2
+    )
+    return binary
 
 def otsu_threshold(img):
-    gray = img if len(img.shape)==2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    th = threshold_otsu(gray)
-    bw = (gray > th).astype(np.uint8) * 255
-    return bw
+    """Automatically find optimal threshold using Otsu’s method."""
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    _, binary = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return binary
 
-def region_growing(img, seed, tol=0.05):
-    """Simple region growing on normalized grayscale image (0..1)."""
-    gray = img.astype(np.float32)
-    if gray.max() > 1:
-        gray = gray / 255.0
-    h,w = gray.shape[:2]
-    output = np.zeros((h,w), dtype=np.uint8)
-    visited = np.zeros((h,w), dtype=bool)
-    stack = [seed]
-    seed_val = gray[seed[1], seed[0]]
-    while stack:
-        x,y = stack.pop()
-        if x<0 or y<0 or x>=w or y>=h: 
-            continue
-        if visited[y,x]:
-            continue
-        visited[y,x] = True
-        if abs(gray[y,x] - seed_val) <= tol:
-            output[y,x] = 255
-            for dx,dy in [(-1,0),(1,0),(0,-1),(0,1)]:
-                stack.append((x+dx,y+dy))
-    return output
+# ---------- Edge Detection ----------
+def sobel_edge(img):
+    """Detect edges using Sobel operator."""
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    grad_x = cv2.Sobel(img, cv2.CV_64F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(img, cv2.CV_64F, 0, 1, ksize=3)
+    sobel = cv2.magnitude(grad_x, grad_y)
+    sobel = np.uint8(np.clip(sobel, 0, 255))
+    return sobel
 
-def color_kmeans_segmentation(img, k=3, colorspace='rgb'):
-    imgf = img.astype(np.float32) / 255.0
-    if colorspace.lower() == 'hsv':
-        imgf = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32) / 255.0
-    Z = imgf.reshape((-1,3))
-    Z = np.float32(Z)
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
-    _, labels, centers = cv2.kmeans(Z, k, None, criteria, 3, cv2.KMEANS_PP_CENTERS)
-    labels = labels.flatten()
-    segmented = centers[labels].reshape(img.shape)
-    segmented = np.uint8(segmented * 255)
-    return segmented
+def canny_edge(img, low=100, high=200):
+    """Canny edge detection."""
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(img, low, high)
+    return edges
 
-def morphological_ops(binary_img, op='open', kernel_size=3):
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
-    if op == 'dilate':
-        return cv2.dilate(binary_img, kernel, iterations=1)
-    elif op == 'erode':
-        return cv2.erode(binary_img, kernel, iterations=1)
-    elif op == 'open':
-        return cv2.morphologyEx(binary_img, cv2.MORPH_OPEN, kernel)
-    elif op == 'close':
-        return cv2.morphologyEx(binary_img, cv2.MORPH_CLOSE, kernel)
+# ---------- Morphological Operations ----------
+def morphological_ops(img, operation='dilate', kernel_size=3, iterations=1):
+    """Perform dilation, erosion, opening, or closing."""
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    
+    if operation == 'dilate':
+        return cv2.dilate(img, kernel, iterations=iterations)
+    elif operation == 'erode':
+        return cv2.erode(img, kernel, iterations=iterations)
+    elif operation == 'open':
+        return cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
+    elif operation == 'close':
+        return cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
     else:
-        raise ValueError("op must be one of 'dilate','erode','open','close'")
+        raise ValueError("Invalid operation type.")
+
+# ---------- Contour Detection ----------
+def find_contours(img):
+    """Find and draw contours on the image."""
+    if len(img.shape) == 3:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img
+    _, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contour_img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    cv2.drawContours(contour_img, contours, -1, (0, 255, 0), 2)
+    return contour_img
+
+# ---------- Visualization ----------
+def show_comparison(original, processed, title1="Original", title2="Processed"):
+    """Display two images side-by-side."""
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 2, 1)
+    if len(original.shape) == 3:
+        plt.imshow(cv2.cvtColor(original, cv2.COLOR_BGR2RGB))
+    else:
+        plt.imshow(original, cmap='gray')
+    plt.title(title1)
+    plt.axis('off')
+
+    plt.subplot(1, 2, 2)
+    if len(processed.shape) == 3:
+        plt.imshow(cv2.cvtColor(processed, cv2.COLOR_BGR2RGB))
+    else:
+        plt.imshow(processed, cmap='gray')
+    plt.title(title2)
+    plt.axis('off')
+    plt.show()

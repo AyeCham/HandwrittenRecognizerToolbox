@@ -1,82 +1,88 @@
-# enhancement.py
-import numpy as np
 import cv2
+import numpy as np
+import matplotlib.pyplot as plt
 from skimage import exposure
+from scipy import fftpack
 
-def hist_equalize(img):
-    """Histogram equalization for grayscale or RGB."""
-    if img is None: 
-        return None
-    if len(img.shape) == 3 and img.shape[2] == 3:
-        ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCrCb)
-        ycrcb[:,:,0] = cv2.equalizeHist(ycrcb[:,:,0])
-        out = cv2.cvtColor(ycrcb, cv2.COLOR_YCrCb2BGR)
-        return out
+# ---------- Histogram Processing ----------
+def histogram_equalization(img):
+    """Apply histogram equalization to grayscale or color images."""
+    if len(img.shape) == 3:  # Convert to grayscale first
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        return cv2.equalizeHist(gray)
     else:
         return cv2.equalizeHist(img)
 
-def hist_match(source, template):
-    """Histogram matching (skimage exposure.match_histograms)"""
-    matched = exposure.match_histograms(source, template, multichannel=(len(source.shape) == 3))
-    # skimage returns float in [0,1] for floats - convert to uint8
-    if matched.dtype != np.uint8:
-        matched = np.clip(matched*255, 0, 255).astype(np.uint8)
-    return matched
+def histogram_matching(source, reference):
+    """Match the histogram of the source image to the reference image."""
+    matched = exposure.match_histograms(source, reference, channel_axis=None)
+    return np.uint8(matched)
 
-def adjust_brightness_contrast(img, alpha=1.0, beta=0):
-    """Linear transform: out = alpha * img + beta. alpha contrast, beta brightness"""
-    out = cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
-    return out
+def adjust_brightness_contrast(img, brightness=0, contrast=0):
+    """Adjust brightness and contrast."""
+    img = np.int16(img)
+    img = img * (contrast / 127 + 1) - contrast + brightness
+    img = np.clip(img, 0, 255)
+    return np.uint8(img)
 
-def gamma_correction(img, gamma=1.0):
-    invGamma = 1.0 / gamma
-    table = (np.array([((i / 255.0) ** invGamma) * 255
-                       for i in np.arange(0, 256)])).astype("uint8")
-    return cv2.LUT(img, table)
+# ---------- Spatial Filtering ----------
+def mean_filter(img, kernel_size=3):
+    return cv2.blur(img, (kernel_size, kernel_size))
 
-def mean_filter(img, k=3):
-    return cv2.blur(img, (k,k))
-
-def median_filter(img, k=3):
-    return cv2.medianBlur(img, k)
+def median_filter(img, kernel_size=3):
+    return cv2.medianBlur(img, kernel_size)
 
 def laplacian_sharpen(img):
-    gray = img if len(img.shape) == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    lap = cv2.Laplacian(gray, cv2.CV_64F)
-    sharp = cv2.convertScaleAbs(gray - 0.5*lap)
-    if len(img.shape) == 3:
-        return cv2.cvtColor(sharp, cv2.COLOR_GRAY2BGR)
-    return sharp
+    lap = cv2.Laplacian(img, cv2.CV_64F)
+    sharp = img - 0.7 * lap
+    sharp = np.clip(sharp, 0, 255)
+    return np.uint8(sharp)
 
-def frequency_filter(img, kind='low', cutoff=30, order=2):
-    """Simple gaussian low/high-pass in freq domain for grayscale images."""
+def high_pass_filter(img):
+    kernel = np.array([[-1, -1, -1],
+                       [-1,  8, -1],
+                       [-1, -1, -1]])
+    return cv2.filter2D(img, -1, kernel)
+
+# ---------- Frequency Domain Filtering ----------
+def frequency_filter(img, filter_type='low', cutoff=30):
+    """Apply frequency-domain filter: low, high, or band."""
     if len(img.shape) == 3:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    f = fftpack.fft2(img)
+    fshift = fftpack.fftshift(f)
+    rows, cols = img.shape
+    crow, ccol = rows // 2, cols // 2
+
+    mask = np.zeros((rows, cols), np.uint8)
+    if filter_type == 'low':
+        mask[crow - cutoff:crow + cutoff, ccol - cutoff:ccol + cutoff] = 1
+    elif filter_type == 'high':
+        mask[:] = 1
+        mask[crow - cutoff:crow + cutoff, ccol - cutoff:ccol + cutoff] = 0
+    elif filter_type == 'band':
+        mask[crow - cutoff - 10:crow + cutoff + 10, ccol - cutoff - 10:ccol + cutoff + 10] = 1
+        mask[crow - cutoff:crow + cutoff, ccol - cutoff:ccol + cutoff] = 0
+
+    fshift_filtered = fshift * mask
+    img_back = np.abs(fftpack.ifft2(fftpack.ifftshift(fshift_filtered)))
+    img_back = np.uint8(np.clip(img_back, 0, 255))
+    return img_back
+
+# ---------- Display Utility ----------
+def show_comparison(original, processed, title1="Original", title2="Processed"):
+    """Display two images side by side."""
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 2, 1)
+    plt.imshow(cv2.cvtColor(original, cv2.COLOR_BGR2RGB), cmap='gray')
+    plt.title(title1)
+    plt.axis('off')
+    plt.subplot(1, 2, 2)
+    if len(processed.shape) == 2:
+        plt.imshow(processed, cmap='gray')
     else:
-        gray = img.copy()
-    f = np.fft.fft2(gray)
-    fshift = np.fft.fftshift(f)
-    rows, cols = gray.shape
-    crow, ccol = rows//2, cols//2
-    # create Gaussian mask
-    u = np.arange(-crow, crow)
-    v = np.arange(-ccol, ccol)
-    U, V = np.meshgrid(v, u)
-    D = np.sqrt(U**2 + V**2)
-    H_low = np.exp(-(D**2) / (2*(cutoff**2)))
-    if kind == 'low':
-        H = H_low
-    elif kind == 'high':
-        H = 1 - H_low
-    elif kind == 'band':
-        # band: exclude low < r < high (we interpret cutoff as tuple)
-        rl, rh = cutoff if isinstance(cutoff, (list, tuple)) else (cutoff, cutoff*2)
-        H = np.logical_and(D>=rl, D<=rh).astype(float)
-    else:
-        H = H_low
-    G = fshift * H
-    img_back = np.fft.ifftshift(G)
-    inv = np.fft.ifft2(img_back)
-    inv = np.abs(inv)
-    inv = np.uint8(255 * (inv - inv.min()) / (inv.max() - inv.min() + 1e-8))
-    return inv
+        plt.imshow(cv2.cvtColor(processed, cv2.COLOR_BGR2RGB))
+    plt.title(title2)
+    plt.axis('off')
+    plt.show()
