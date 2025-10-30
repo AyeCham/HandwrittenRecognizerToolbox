@@ -3,10 +3,10 @@ import streamlit as st
 import cv2
 import numpy as np
 from pathlib import Path
-from module1_enhancement.enhancement import hist_equalize, mean_filter, median_filter, adjust_brightness_contrast, gamma_correction, frequency_filter, laplacian_sharpen
-from module2_segmentation.segmentation import otsu_threshold, canny_edge, color_kmeans_segmentation, morphological_ops
-from module3_transform.transform import rotate_image, scale_image, translate_image
-from module5_classification.classifier import predict
+from module1.enhancement import hist_equalize, mean_filter, median_filter, adjust_brightness_contrast, gamma_correction, frequency_filter, laplacian_sharpen
+from module2.segmentation import otsu_threshold, canny_edge, color_kmeans_segmentation, morphological_ops
+from module3.transform import rotate_image, scale_image, translate_image
+from module5.classifier import predict
 
 st.set_page_config(page_title="Handwritten Recognizer Toolbox", layout="wide")
 

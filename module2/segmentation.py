@@ -38,12 +38,43 @@ def sobel_edge(img):
     sobel = np.uint8(np.clip(sobel, 0, 255))
     return sobel
 
+def prewitt_edge(img):
+    """Detect edges using Prewitt operator."""
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # Prewitt kernels
+    kernelx = np.array([[ -1,  0,  1],
+                        [ -1,  0,  1],
+                        [ -1,  0,  1]])
+    
+    kernely = np.array([[ -1, -1, -1],
+                        [  0,  0,  0],
+                        [  1,  1,  1]])
+
+
+    grad_x = cv2.filter2D(img, -1, kernelx)
+    grad_y = cv2.filter2D(img, -1, kernely)
+
+    prewitt = cv2.magnitude(grad_x.astype(float), grad_y.astype(float))
+    prewitt = np.uint8(np.clip(prewitt, 0, 255))
+    return prewitt
+
 def canny_edge(img, low=100, high=200):
     """Canny edge detection."""
     if len(img.shape) == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(img, low, high)
     return edges
+
+def region_growing(img, seed_point=(100, 100), threshold=5):
+    """Simple placeholder for region growing segmentation."""
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    output = np.zeros_like(img)
+    output[seed_point] = 255  # just mark seed for now
+    return output
+
 
 # ---------- Morphological Operations ----------
 def morphological_ops(img, operation='dilate', kernel_size=3, iterations=1):
