@@ -17,8 +17,8 @@ A small desktop app for basic image processing:
 
 ## 2) Clone the repository
 ```bash
-git clone <YOUR-REPO-URL>.git
-cd <YOUR-REPO-FOLDER>
+git clone <https://github.com/AyeCham/HandwrittenRecognizerToolbox>.git
+cd <YOUR-CLONED-REPO-FOLDER>
 ```
 ---
 
@@ -47,6 +47,5 @@ pip install -r requirements.txt
 ```bash
 python gui_main.py
 ```
-
 
 Then click Load Image and choose a local file (.png .jpg .jpeg .bmp .tif .tiff).
